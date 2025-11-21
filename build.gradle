@@ -1,0 +1,75 @@
+plugins {
+    id 'java'
+    id 'io.qameta.allure' version '2.11.2'
+}
+
+group = 'com.elitea.tests'
+version = '1.0.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Playwright
+    implementation 'com.microsoft.playwright:playwright:1.48.0'
+    
+    // JUnit 5
+    testImplementation platform('org.junit:junit-bom:5.10.1')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params'
+    
+    // Allure Reporting
+    testImplementation 'io.qameta.allure:allure-junit5:2.25.0'
+    
+    // Logging
+    implementation 'org.slf4j:slf4j-api:2.0.9'
+    implementation 'ch.qos.logback:logback-classic:1.4.14'
+    
+    // AssertJ for fluent assertions
+    testImplementation 'org.assertj:assertj-core:3.24.2'
+}
+
+test {
+    useJUnitPlatform()
+    
+    // Parallel execution configuration
+    systemProperty 'junit.jupiter.execution.parallel.enabled', 'true'
+    systemProperty 'junit.jupiter.execution.parallel.mode.default', 'concurrent'
+    systemProperty 'junit.jupiter.execution.parallel.config.strategy', 'dynamic'
+    systemProperty 'junit.jupiter.execution.parallel.config.dynamic.factor', '1.0'
+    
+    // Test results
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat "full"
+        showStandardStreams = false
+    }
+    
+    // Allure results directory
+    systemProperty 'allure.results.directory', "${buildDir}/allure-results"
+}
+
+// Gradle wrapper configuration
+wrapper {
+    gradleVersion = '8.5'
+    distributionType = Wrapper.DistributionType.BIN
+}
+
+// Custom tasks
+task installPlaywrightBrowsers(type: Exec) {
+    description = 'Install Playwright browsers'
+    group = 'setup'
+    commandLine 'java', '-jar', configurations.runtimeClasspath.find { it.name.contains('playwright') }, 'install'
+}
+
+allure {
+    version = '2.25.0'
+    autoconfigure = true
+    aspectjweaver = true
+}

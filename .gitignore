@@ -1,0 +1,58 @@
+# Gradle files
+.gradle/
+build/
+!gradle-wrapper.jar
+.gradletasknamecache
+
+# Java compiled files
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+out/
+bin/
+
+# IDE files
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.classpath
+.project
+.metadata/
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Test results
+test-results/
+test-output/
+playwright-report/
+allure-results/
+allure-report/
+
+# Logs
+*.log
+logs/
+
+# Screenshots and videos
+screenshots/
+videos/
+traces/
+
+# Environment files
+.env
+.env.local
+*.properties.local
+test.properties
+
+# Package files
+*.tar.gz
+*.zip

@@ -1,0 +1,9 @@
+# Test Properties Template
+# Copy this file to test.properties and replace with your actual credentials
+
+# Authentication Configuration
+# Replace with your actual PIN
+test.pin=YOUR_PIN_HERE
+
+# Replace with your EPAM email
+test.user=your.email@epam.com
