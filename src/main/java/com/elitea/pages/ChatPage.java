@@ -1,25 +1,45 @@
 package com.elitea.pages;
 
+import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.options.AriaRole;
 import com.elitea.base.BasePage;
+import com.elitea.utils.WaitUtils;
+import com.elitea.utils.RetryUtils;
+import com.elitea.utils.SelectorUtils;
+import com.elitea.constants.SelectorConstants;
 
 /**
  * Page Object for Chat Page
+ * Handles main chat interface and conversation management
+ * Enhanced with smart wait strategies and centralized selectors
  */
 public class ChatPage extends BasePage {
     
-    // Locators
-    private static final String CHAT_INPUT = "textarea[placeholder*='message']";
-    private static final String SEND_BUTTON = "button[type='submit']";
-    private static final String CHAT_MESSAGES = "[data-testid='message']";
-    private static final String NEW_CHAT_BUTTON = "button:has-text('New chat')";
-    private static final String USER_MENU = "[data-testid='user-menu']";
-    
-    // Expected URL pattern
-    private static final String CHAT_URL_PATTERN = "**/chat**";
-    
     public ChatPage(Page page) {
         super(page);
+    }
+    
+    /**
+     * Navigate to chat page
+     */
+    public ChatPage navigateToChatPage(String url) {
+        logStep("Navigate to chat page: " + url);
+        navigateTo(url);
+        // Wait for Create Conversation button to be visible (indicates page fully loaded with auth)
+        // Page may redirect and needs time to initialize socket connections
+        try {
+            SelectorUtils.getButtonByName(page, SelectorConstants.ChatPage.CREATE_CONVERSATION_BUTTON)
+                .waitFor(new com.microsoft.playwright.Locator.WaitForOptions().setTimeout(45000));
+        } catch (Exception e) {
+            // If button not found, might not be logged in - check URL
+            logStep("Create Conversation button not found. Current URL: " + page.url());
+            if (page.url().contains("auth")) {
+                throw new RuntimeException("Not logged in - redirected to auth page. Run: ./gradlew authSetup");
+            }
+            throw e;
+        }
+        return this;
     }
     
     /**
@@ -27,76 +47,106 @@ public class ChatPage extends BasePage {
      */
     public boolean isChatPageDisplayed() {
         logStep("Verify chat page is displayed");
-        waitForUrlMatches(CHAT_URL_PATTERN);
-        return getCurrentUrl().contains("chat") && isElementVisible(CHAT_INPUT);
+        waitForUrlMatches(SelectorConstants.ChatPage.CHAT_URL_PATTERN);
+        return getCurrentUrl().contains("chat");
     }
     
     /**
      * Get page title
      */
     public String getChatPageTitle() {
-        return page.title();
+        return getPageTitle();
     }
     
     /**
-     * Check if chat input is visible
+     * Create a new conversation
      */
-    public boolean isChatInputVisible() {
-        return isElementVisible(CHAT_INPUT);
+    public ConversationPage createNewConversation() {
+        logStep("Create new conversation");
+        SelectorUtils.getButtonByName(page, 
+            SelectorConstants.ChatPage.CREATE_CONVERSATION_BUTTON).click();
+        page.waitForTimeout(1000);
+        return new ConversationPage(page);
     }
     
     /**
-     * Type message in chat input
+     * Check if create conversation button is visible
      */
-    public ChatPage typeMessage(String message) {
-        logStep("Type message: " + message);
-        fill(CHAT_INPUT, message);
-        return this;
+    public boolean isCreateConversationButtonVisible() {
+        logStep("Check if create conversation button is visible");
+        return SelectorUtils.getButtonByName(page, 
+            SelectorConstants.ChatPage.CREATE_CONVERSATION_BUTTON).isVisible();
     }
     
     /**
-     * Click send button
+     * Check if user profile button is visible
      */
-    public ChatPage clickSendButton() {
-        logStep("Click send button");
-        click(SEND_BUTTON);
-        return this;
-    }
-    
-    /**
-     * Send a chat message
-     */
-    public ChatPage sendMessage(String message) {
-        logStep("Send chat message: " + message);
-        typeMessage(message);
-        clickSendButton();
-        return this;
-    }
-    
-    /**
-     * Get number of chat messages
-     */
-    public int getMessagesCount() {
-        int count = page.locator(CHAT_MESSAGES).count();
-        logStep("Get messages count: " + count);
-        return count;
-    }
-    
-    /**
-     * Start new chat
-     */
-    public ChatPage startNewChat() {
-        logStep("Start new chat");
-        if (isElementVisible(NEW_CHAT_BUTTON)) {
-            click(NEW_CHAT_BUTTON);
+    public boolean isUserProfileVisible() {
+        logStep("Check if user profile button is visible");
+        try {
+            page.waitForTimeout(1000);
+            return SelectorUtils.getButtonByName(page, 
+                SelectorConstants.ChatPage.USER_PROFILE_BUTTON).isVisible();
+        } catch (Exception e) {
+            logStep("Error checking user profile: " + e.getMessage());
+            return false;
         }
+    }
+    
+    /**
+     * Open search functionality
+     */
+    public ChatPage openSearch() {
+        logStep("Open search");
+        SelectorUtils.getButtonByNameIgnoreCase(page, 
+            SelectorConstants.ChatPage.SEARCH_BUTTON).click();
         return this;
     }
     
     /**
-     * Check if user menu is visible
+     * Type in search field
      */
-    public boolean isUserMenuVisible() {
-        return isElementVisible(USER_MENU);
+    public ChatPage searchConversations(String searchTerm) {
+        logStep("Search conversations: " + searchTerm);
+        Locator searchInput = SelectorUtils.getTextboxByNamePattern(page,
+            SelectorUtils.caseInsensitive(SelectorConstants.ChatPage.SEARCH_INPUT));
+        searchInput.fill(searchTerm);
+        return this;
+    }
+    
+    /**
+     * Get conversations list
+     */
+    public Locator getConversationsList() {
+        return SelectorUtils.getByCssSelector(page, 
+            SelectorConstants.ChatPage.CONVERSATIONS_LIST).first();
+    }
+    
+    /**
+     * Select conversation by name
+     */
+    public ConversationPage selectConversationByName(String conversationName) {
+        logStep("Select conversation: " + conversationName);
+        SelectorUtils.getByTextFirst(page, conversationName).click();
+        page.waitForTimeout(1000);
+        return new ConversationPage(page);
+    }
+    
+    /**
+     * Check if conversation exists in list
+     */
+    public boolean isConversationVisible(String conversationName) {
+        logStep("Check if conversation exists: " + conversationName);
+        return SelectorUtils.getByTextFirst(page, conversationName).isVisible();
+    }
+    
+    /**
+     * Navigate to chat using browser back button
+     */
+    public ChatPage goBack() {
+        logStep("Navigate back");
+        page.goBack();
+        waitForPageReady();
+        return this;
     }
 }

@@ -1,13 +1,17 @@
 package com.elitea.base;
 
+import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.LoadState;
 import com.elitea.config.ConfigManager;
+import com.elitea.utils.WaitUtils;
+import com.elitea.utils.RetryUtils;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
  * Base Page Object containing common page operations
+ * Enhanced with smart wait utilities and retry mechanisms
  */
 public class BasePage {
     protected Page page;
@@ -23,31 +27,45 @@ public class BasePage {
      */
     protected void logStep(String message) {
         String timestamp = LocalDateTime.now().format(TIME_FORMATTER);
-        System.out.println(String.format("[%s] ✓ %s", timestamp, message));
+        System.out.println(String.format("[%s] -> %s", timestamp, message));
     }
     
     /**
-     * Navigate to a URL
+     * Navigate to a URL with smart wait
      */
     protected BasePage navigateTo(String url) {
         logStep("Navigate to URL: " + url);
-        page.navigate(url);
-        waitForPageLoad();
+        RetryUtils.retryVoid(() -> page.navigate(url), "Navigate to " + url);
+        waitForPageReady();
         return this;
     }
     
     /**
-     * Wait for page to be fully loaded
+     * Wait for page to be fully loaded (smart wait)
      */
     protected void waitForPageLoad() {
-        page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+        WaitUtils.waitForPageReady(page);
+    }
+    
+    /**
+     * Wait for page to be ready (DOM + Network)
+     */
+    protected void waitForPageReady() {
+        WaitUtils.waitForPageReady(page, DEFAULT_TIMEOUT);
     }
     
     /**
      * Wait for network to be idle
      */
     protected void waitForNetworkIdle() {
-        page.waitForLoadState(LoadState.NETWORKIDLE);
+        WaitUtils.waitForNetworkIdle(page, DEFAULT_TIMEOUT);
+    }
+    
+    /**
+     * Wait for AJAX requests to complete
+     */
+    protected void waitForAjaxComplete() {
+        WaitUtils.waitForAjaxComplete(page);
     }
     
     /**
@@ -92,17 +110,56 @@ public class BasePage {
      */
     protected BasePage waitForElement(String selector) {
         logStep("Wait for element: " + selector);
-        page.locator(selector).waitFor(new com.microsoft.playwright.Locator.WaitForOptions()
-                .setTimeout(DEFAULT_TIMEOUT));
+        Locator locator = page.locator(selector);
+        locator.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT));
         return this;
     }
     
     /**
-     * Click on element
+     * Wait for element to be stable (no movement/animation)
+     */
+    protected BasePage waitForElementStable(Locator locator) {
+        WaitUtils.waitForElementToBeStable(locator, DEFAULT_TIMEOUT);
+        return this;
+    }
+    
+    /**
+     * Wait for text to appear on page
+     */
+    protected BasePage waitForText(String text) {
+        WaitUtils.waitForTextToAppear(page, text, DEFAULT_TIMEOUT);
+        return this;
+    }
+    
+    /**
+     * Wait for text to disappear from page
+     */
+    protected BasePage waitForTextGone(String text) {
+        WaitUtils.waitForTextToDisappear(page, text, DEFAULT_TIMEOUT);
+        return this;
+    }
+    
+    /**
+     * Click on element with retry
      */
     protected BasePage click(String selector) {
         logStep("Click element: " + selector);
-        page.locator(selector).click();
+        Locator locator = page.locator(selector);
+        RetryUtils.retryVoid(() -> {
+            WaitUtils.waitForElementClickable(locator, DEFAULT_TIMEOUT);
+            locator.click();
+        }, "Click " + selector);
+        return this;
+    }
+    
+    /**
+     * Click locator with retry and wait for stability
+     */
+    protected BasePage clickWithWait(Locator locator) {
+        RetryUtils.retryVoid(() -> {
+            WaitUtils.waitForElementClickable(locator, DEFAULT_TIMEOUT);
+            locator.click();
+        }, "Click element");
         return this;
     }
     

@@ -38,21 +38,31 @@ dependencies {
 test {
     useJUnitPlatform()
     
-    // Parallel execution configuration
-    systemProperty 'junit.jupiter.execution.parallel.enabled', 'true'
-    systemProperty 'junit.jupiter.execution.parallel.mode.default', 'concurrent'
-    systemProperty 'junit.jupiter.execution.parallel.config.strategy', 'dynamic'
-    systemProperty 'junit.jupiter.execution.parallel.config.dynamic.factor', '1.0'
+    // Parallel execution - controlled by junit-platform.properties
+    // Set to false for headed mode (to see browser UI)
+    // Set to true for headless parallel execution
+    def parallelEnabled = System.getProperty('parallel', 'false').toBoolean()
+    def headlessMode = System.getProperty('headless', 'false').toBoolean()
+    
+    systemProperty 'junit.jupiter.execution.parallel.enabled', parallelEnabled.toString()
+    systemProperty 'headless', headlessMode.toString()
+    
+    // Gradle-level parallel forks (in addition to JUnit parallelization)
+    // When parallel=true, allow multiple test worker processes
+    maxParallelForks = parallelEnabled ? Runtime.runtime.availableProcessors() : 1
     
     // Test results
     testLogging {
         events "passed", "skipped", "failed"
         exceptionFormat "full"
-        showStandardStreams = false
+        showStandardStreams = true
     }
     
     // Allure results directory
     systemProperty 'allure.results.directory', "${buildDir}/allure-results"
+    
+    // JVM arguments for better parallel performance
+    jvmArgs '-Xmx2g', '-XX:MaxMetaspaceSize=512m'
 }
 
 // Gradle wrapper configuration
@@ -68,8 +78,202 @@ task installPlaywrightBrowsers(type: Exec) {
     commandLine 'java', '-jar', configurations.runtimeClasspath.find { it.name.contains('playwright') }, 'install'
 }
 
+task authSetup(type: JavaExec) {
+    description = 'Perform login and save authentication state'
+    group = 'setup'
+    mainClass = 'com.elitea.setup.AuthSetup'
+    classpath = sourceSets.test.runtimeClasspath
+}
+
+task authStatus(type: JavaExec) {
+    description = 'Check authentication state status'
+    group = 'setup'
+    mainClass = 'com.elitea.utils.AuthStateManager'
+    classpath = sourceSets.main.runtimeClasspath
+    args 'status'
+}
+
+task authClean {
+    description = 'Delete saved authentication state'
+    group = 'setup'
+    doLast {
+        def authFile = file('playwright/.auth/state.json')
+        if (authFile.exists()) {
+            authFile.delete()
+            println '✓ Authentication state deleted'
+            println '  Run "./gradlew authSetup" to create new state'
+        } else {
+            println 'ℹ️  No authentication state found'
+        }
+    }
+}
+
+task testWithAuth {
+    description = 'Run tests with saved authentication'
+    group = 'verification'
+    dependsOn 'test'
+    doFirst {
+        if (!file('playwright/.auth/state.json').exists()) {
+            println 'WARNING: Authentication state not found. Tests may require manual login.'
+            println 'Run "gradlew authSetup" first to save authentication state.'
+        }
+    }
+}
+
 allure {
     version = '2.25.0'
     autoconfigure = true
     aspectjweaver = true
+}
+
+// ==================== PARALLEL EXECUTION TASKS ====================
+
+// Run tests in parallel mode (headless)
+task testParallel(type: Test) {
+    description = 'Run tests in parallel mode (headless for speed)'
+    group = 'verification'
+    
+    useJUnitPlatform()
+    
+    systemProperty 'junit.jupiter.execution.parallel.enabled', 'true'
+    systemProperty 'headless', 'true'
+    maxParallelForks = Runtime.runtime.availableProcessors()
+    
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat "full"
+    }
+    
+    systemProperty 'allure.results.directory', "${buildDir}/allure-results"
+    jvmArgs '-Xmx2g', '-XX:MaxMetaspaceSize=512m'
+}
+
+// Run tests sequentially with browser UI visible
+task testSequential(type: Test) {
+    description = 'Run tests sequentially (headed mode, visible browser)'
+    group = 'verification'
+    
+    useJUnitPlatform()
+    
+    systemProperty 'junit.jupiter.execution.parallel.enabled', 'false'
+    systemProperty 'headless', 'false'
+    maxParallelForks = 1
+    
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat "full"
+        showStandardStreams = true
+    }
+    
+    systemProperty 'allure.results.directory', "${buildDir}/allure-results"
+}
+
+// Run tests in parallel with browser UI (debugging)
+task testParallelHeaded(type: Test) {
+    description = 'Run tests in parallel with visible browser (for debugging)'
+    group = 'verification'
+    
+    useJUnitPlatform()
+    
+    systemProperty 'junit.jupiter.execution.parallel.enabled', 'true'
+    systemProperty 'headless', 'false'
+    maxParallelForks = 2  // Limit to 2 to avoid too many browser windows
+    
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat "full"
+        showStandardStreams = true
+    }
+    
+    systemProperty 'allure.results.directory', "${buildDir}/allure-results"
+    jvmArgs '-Xmx2g', '-XX:MaxMetaspaceSize=512m'
+}
+
+// Run only P0 (critical) tests in parallel
+task testP0(type: Test) {
+    description = 'Run P0 (critical priority) tests in parallel'
+    group = 'verification'
+    
+    useJUnitPlatform {
+        includeTags 'P0'
+    }
+    
+    systemProperty 'junit.jupiter.execution.parallel.enabled', 'true'
+    systemProperty 'headless', 'true'
+    maxParallelForks = Runtime.runtime.availableProcessors()
+    
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat "full"
+    }
+    
+    systemProperty 'allure.results.directory', "${buildDir}/allure-results"
+    jvmArgs '-Xmx2g', '-XX:MaxMetaspaceSize=512m'
+}
+
+// Run smoke tests in parallel
+task testSmoke(type: Test) {
+    description = 'Run smoke tests in parallel'
+    group = 'verification'
+    
+    useJUnitPlatform {
+        includeTags 'Smoke'
+    }
+    
+    systemProperty 'junit.jupiter.execution.parallel.enabled', 'true'
+    systemProperty 'headless', 'true'
+    maxParallelForks = Runtime.runtime.availableProcessors()
+    
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat "full"
+    }
+    
+    systemProperty 'allure.results.directory', "${buildDir}/allure-results"
+    jvmArgs '-Xmx2g', '-XX:MaxMetaspaceSize=512m'
+}
+
+// Performance benchmark - measure parallel vs sequential
+task testBenchmark {
+    description = 'Run tests sequentially then in parallel to compare performance'
+    group = 'verification'
+    
+    doLast {
+        println ''
+        println '========================================'
+        println 'PERFORMANCE BENCHMARK'
+        println '========================================'
+        println ''
+        
+        // Sequential run
+        println '1. Running tests SEQUENTIALLY...'
+        long sequentialStart = System.currentTimeMillis()
+        tasks.testSequential.execute()
+        long sequentialTime = System.currentTimeMillis() - sequentialStart
+        
+        println ''
+        println '2. Running tests in PARALLEL...'
+        long parallelStart = System.currentTimeMillis()
+        tasks.testParallel.execute()
+        long parallelTime = System.currentTimeMillis() - parallelStart
+        
+        // Results
+        println ''
+        println '========================================'
+        println 'RESULTS'
+        println '========================================'
+        println "Sequential time: ${sequentialTime / 1000}s"
+        println "Parallel time:   ${parallelTime / 1000}s"
+        println "Speed improvement: ${((1 - (parallelTime / sequentialTime)) * 100).round(1)}%"
+        println '========================================'
+    }
+}
+
+// Task to run manual authentication setup
+task runManualAuth(type: JavaExec) {
+    group = 'Authentication'
+    description = 'Manually login and save authentication state'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.elitea.utils.ManualAuthSetup'
+    standardInput = System.in
 }

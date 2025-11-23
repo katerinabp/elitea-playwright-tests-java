@@ -11,11 +11,6 @@ public class LoginPage extends BasePage {
     // Locators
     private static final String EPAM_IDP_BUTTON = "a[href*='epam']";
     private static final String FOREFRONT_IDP_BUTTON = "a[href*='forefront']";
-    private static final String EMAIL_INPUT = "input[type='email'], input[name='username'], input[placeholder*='email'], input[id*='email']";
-    private static final String PIN_INPUT = "input[type='password'], input[name='password'], input[id*='password'], input[placeholder*='PIN']";
-    private static final String CONTINUE_BUTTON = "button[type='submit'], input[type='submit'], button:has-text('Continue'), button:has-text('Next'), button:has-text('Sign in')";
-    private static final String EPAM_EMAIL = "katerina_pikulik@epam.com";
-    private static final String EPAM_PIN = System.getenv("EPAM_PIN") != null ? System.getenv("EPAM_PIN") : "";
     
     public LoginPage(Page page) {
         super(page);
@@ -63,51 +58,37 @@ public class LoginPage extends BasePage {
     
     /**
      * Perform EPAM SSO login
-     * Note: This assumes EPAM SSO credentials are already configured
-     * or user is already authenticated in the browser session
+     * 
+     * MCP-verified flow (2024-01-15):
+     * 1. Navigate to /alita_ui/chat → redirects to auth.elitea.ai login page
+     * 2. Click "EPAM" link → redirects to MetaDefender compliance check
+     * 3. MetaDefender runs for ~30 seconds → auto-completes
+     * 4. Redirects to chat page (fully authenticated)
+     * 
+     * Note: No email/PIN entry required - SSO session is already established
      */
     public ChatPage loginWithEpamSSO() {
         logStep("Perform EPAM SSO login");
         clickEpamLogin();
         
-        // Check if email input is present (SSO login screen)
+        // After clicking EPAM, wait for MetaDefender compliance check
         try {
-            page.waitForSelector(EMAIL_INPUT, new Page.WaitForSelectorOptions().setTimeout(5000));
-            logStep("Email input detected - entering EPAM email");
-            fill(EMAIL_INPUT, EPAM_EMAIL);
+            logStep("Waiting for MetaDefender compliance check to complete (max 60 seconds)");
+            // Wait for page to contain "chat" in URL or title (indicates successful login)
+            page.waitForURL(url -> url.contains("chat"), new Page.WaitForURLOptions().setTimeout(60000));
+            logStep("MetaDefender compliance check completed - redirected to chat page");
             
-            // Click continue/submit button
-            if (isElementVisible(CONTINUE_BUTTON)) {
-                logStep("Clicking continue button");
-                click(CONTINUE_BUTTON);
-            }
-            
-            // Wait for PIN/password input to appear
-            page.waitForSelector(PIN_INPUT, new Page.WaitForSelectorOptions().setTimeout(10000));
-            logStep("PIN input detected - entering PIN");
-            
-            if (!EPAM_PIN.isEmpty()) {
-                fill(PIN_INPUT, EPAM_PIN);
-                logStep("PIN entered successfully");
-                
-                // Click sign in button
-                if (isElementVisible(CONTINUE_BUTTON)) {
-                    logStep("Clicking sign in button");
-                    click(CONTINUE_BUTTON);
-                }
-            } else {
-                logStep("EPAM_PIN environment variable not set - waiting for manual PIN entry");
-                // Wait longer for manual entry
-                page.waitForTimeout(30000);
-            }
+            // Wait for page to be fully loaded (network idle + DOM ready)
+            logStep("Waiting for chat page to fully load");
+            page.waitForLoadState(com.microsoft.playwright.options.LoadState.NETWORKIDLE, 
+                new Page.WaitForLoadStateOptions().setTimeout(30000));
+            logStep("Chat page fully loaded");
         } catch (Exception e) {
-            logStep("No email input found - assuming already authenticated or different flow");
+            logStep("Timeout waiting for redirect to chat page - compliance check may have failed");
+            throw new RuntimeException("Login failed - MetaDefender compliance check timeout", e);
         }
         
-        // Wait for redirect to chat page
-        waitForUrlContains("chat");
-        logStep("Successfully logged in and redirected to chat page");
-        
+        logStep("Successfully logged in via EPAM SSO");
         return new ChatPage(page);
     }
     

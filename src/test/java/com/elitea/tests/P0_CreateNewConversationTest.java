@@ -1,7 +1,12 @@
 package com.elitea.tests;
 
-import com.microsoft.playwright.*;
-import com.microsoft.playwright.options.AriaRole;
+import com.elitea.base.BaseTest;
+import com.elitea.pages.ChatPage;
+import com.elitea.pages.ConversationPage;
+import com.elitea.config.ConfigManager;
+import com.elitea.data.TestDataFactory;
+import com.elitea.data.TestMessage;
+import com.elitea.utils.WaitUtils;
 import org.junit.jupiter.api.*;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -9,103 +14,100 @@ import static org.junit.jupiter.api.Assertions.*;
  * spec: docs/EliteA-Chat-Test-Plan-Updated.md
  * Test Level: Integration
  * Priority: P0 - Critical
+ * 
+ * TC 2.1 - Create New Conversation
+ * Verified flow using Playwright MCP tools
  */
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class P0_CreateNewConversationTest {
-    private Playwright playwright;
-    private Browser browser;
-    private BrowserContext context;
-    private Page page;
-
-    @BeforeAll
-    void launchBrowser() {
-        playwright = Playwright.create();
-        browser = playwright.chromium().launch(new BrowserType.LaunchOptions()
-                .setHeadless(false)
-                .setSlowMo(500)
-                .setArgs(java.util.Arrays.asList("--incognito")));
-    }
-
-    @BeforeEach
-    void createContextAndPage() {
-        // Create new context with no storage state (incognito mode)
-        context = browser.newContext(new Browser.NewContextOptions()
-                .setViewportSize(1920, 1080));
-        page = context.newPage();
-    }
-
-    @AfterEach
-    void closeContext() {
-        // Clear all storage, cookies, and cache before closing
-        if (context != null) {
-            context.clearCookies();
-            page.evaluate("() => { localStorage.clear(); sessionStorage.clear(); }");
-            context.close();
-        }
-    }
-
-    @AfterAll
-    void closeBrowser() {
-        browser.close();
-        playwright.close();
-    }
+public class P0_CreateNewConversationTest extends BaseTest {
+    private ChatPage chatPage;
+    private ConversationPage conversationPage;
 
     @Test
     @DisplayName("TC 2.1 - Create New Conversation")
     void testCreateNewConversation() {
-        // Navigate to chat
-        page.navigate("https://next.elitea.ai/alita_ui/chat");
-
+        // Step 1: Navigate to chat page
+        chatPage = new ChatPage(page);
+        chatPage.navigateToChatPage(ConfigManager.getAppUrl());
+        
         // Get initial URL to compare later
         String initialUrl = page.url();
 
-        // 1. From any chat page, click "Create Conversation" button in sidebar
-        Locator createConversationButton = page.getByRole(AriaRole.BUTTON, 
-            new Page.GetByRoleOptions().setName("Create Conversation"));
-        createConversationButton.click();
+        // Step 2: Click "Create Conversation" button in sidebar
+        conversationPage = chatPage.createNewConversation();
+        
+        // Step 3: Verify new conversation is created with default greeting
+        assertTrue(conversationPage.isGreetingDisplayed(), 
+            "Greeting 'Hello, Katerina!' should be visible");
+        assertTrue(conversationPage.isWelcomeMessageDisplayed(), 
+            "Welcome message 'What can I do for you today?' should be visible");
 
-        // 2. Verify new conversation is created
-        // - New conversation appears with default greeting
-        assertTrue(page.getByText("Hello, Katerina!").isVisible(), "Greeting message should be visible");
-        assertTrue(page.getByText("What can I do for you today?").isVisible(), "Welcome message should be visible");
+        // Step 4: Verify "Naming" status initially shown
+        assertTrue(conversationPage.isNamingStatusVisible(), 
+            "Naming status should be visible initially");
 
-        // - Conversation shows "Naming" status initially
-        assertTrue(page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("Naming")).isVisible(), 
-            "Naming status should be visible");
-
-        // - URL changes to new conversation ID
+        // Step 5: Verify URL changes to new conversation
         String newUrl = page.url();
         assertNotEquals(initialUrl, newUrl, "URL should change after creating conversation");
         assertTrue(newUrl.contains("/chat"), "URL should contain /chat");
 
-        // Send a message to trigger auto-naming
-        Locator messageInput = page.getByRole(AriaRole.TEXTBOX, 
-            new Page.GetByRoleOptions().setName(java.util.regex.Pattern.compile("Type your message", 
-            java.util.regex.Pattern.CASE_INSENSITIVE)));
-        messageInput.fill("This is a test conversation");
-        page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("send your question")).click();
+        // Step 6: Type a message (using pressSequentially via typeMessage)
+        TestMessage testMessage = TestDataFactory.createSimpleMessage();
+        conversationPage.typeMessage(testMessage.getContent());
 
-        // Wait for response
-        page.waitForTimeout(3000);
+        // Step 7: Verify send button becomes enabled after typing
+        assertTrue(conversationPage.isSendButtonEnabled(), 
+            "Send button should be enabled after typing message");
 
-        // 3. Check conversations list
-        // - After first message, conversation is auto-named
-        Locator conversationsList = page.locator(".MuiBox-root").filter(
-            new Locator.FilterOptions().setHasText("Conversations"));
-        assertTrue(conversationsList.isVisible(), "Conversations list should be visible");
+        // Step 8: Click send button
+        conversationPage.clickSendButton();
 
-        // - Conversation appears under "Today" section in sidebar
-        assertTrue(page.getByRole(AriaRole.HEADING, 
-            new Page.GetByRoleOptions().setName("Today").setLevel(6)).isVisible(), 
-            "Today section should be visible");
+        // Step 9: Verify user message appears in chat history
+        WaitUtils.waitForTextToAppear(page, testMessage.getContent());
+        assertTrue(conversationPage.isMessageInHistory(testMessage.getContent()), 
+            "User message should appear in chat history");
+        
+        // Step 10: Verify message timestamp
+        assertTrue(conversationPage.hasMessageWithTimestamp("less than a minute ago"), 
+            "Message should have 'less than a minute ago' timestamp");
 
-        // Verify we can create another conversation
-        page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("Create Conversation")).click();
-        assertTrue(page.getByText("Hello, Katerina!").isVisible(), "New conversation should show greeting");
+        // Step 11: Wait for AI response
+        WaitUtils.waitForTextToAppear(page, "Alita");
+        
+        // Step 12: Verify AI response appears (thought section is optional, depends on model/timing)
+        if (conversationPage.isThoughtSectionVisible()) {
+            System.out.println("[INFO] Thought section is visible");
+        } else {
+            System.out.println("[INFO] Thought section not visible (may be fast response or model-dependent)");
+        }
+        assertTrue(conversationPage.hasAIResponse(), 
+            "AI response text should be visible");
 
-        // Verify previous conversation is still in the list
-        assertTrue(page.getByRole(AriaRole.HEADING, 
-            new Page.GetByRoleOptions().setName("Today").setLevel(6)).isVisible(), 
-            "Today section should still be visible with previous conversations");
+        // Step 13: Verify message action buttons are present
+        assertTrue(conversationPage.isCopyButtonVisible(), 
+            "Copy to clipboard button should be visible");
+        assertTrue(conversationPage.isRegenerateButtonVisible(), 
+            "Regenerate button should be visible");
+        assertTrue(conversationPage.isDeleteButtonVisible(), 
+            "Delete button should be visible");
+
+        // Step 14: Verify conversation is auto-named
+        WaitUtils.waitUntil(() -> !page.url().equals(newUrl), 5000,
+            "URL should update with conversation name");
+        String finalUrl = page.url();
+        assertTrue(finalUrl.contains("name="), 
+            "URL should contain conversation name parameter");
+
+        // Step 15: Verify conversation appears in "Today" section
+        assertTrue(conversationPage.isTodaySectionVisible(), 
+            "Today section should be visible in conversations list");
+        
+        // Step 16: Verify we can create another conversation
+        chatPage.createNewConversation();
+        assertTrue(conversationPage.isGreetingDisplayed(), 
+            "New conversation should show greeting message");
+
+        // Step 17: Verify previous conversation remains in history
+        assertTrue(conversationPage.isTodaySectionVisible(), 
+            "Today section should still show previous conversations");
     }
 }
